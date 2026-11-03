@@ -1,0 +1,122 @@
+@baseUrl = http://127.0.0.1:6002
+# @baseUrl = https://tradingview-scraper.omkar.cloud
+
+# Every call below returned 200 through the local route layer on 2026-11-03
+# (ONLY_SCRAPER=tradingview python run.py --dev). The first call per path is
+# the example derive_facts.py picks up.
+
+# ========================================
+# SYMBOLS
+# ========================================
+
+### Symbol details (profile, price, valuation, dividends, earnings, analysts, FAQ)
+GET {{baseUrl}}/tradingview/symbols/details?symbol=NASDAQ:NVDA
+
+### Symbol details (Apple)
+GET {{baseUrl}}/tradingview/symbols/details?symbol=NASDAQ:AAPL
+
+### Symbol details (by link)
+GET {{baseUrl}}/tradingview/symbols/details?symbol=https://www.tradingview.com/symbols/NASDAQ-AAPL/
+
+### Symbol search
+GET {{baseUrl}}/tradingview/symbols/search?query=tesla
+
+### Symbol search (stocks only)
+GET {{baseUrl}}/tradingview/symbols/search?query=apple&type=stock
+
+### Quotes (several symbols)
+GET {{baseUrl}}/tradingview/symbols/quote?symbol=NASDAQ:AAPL,BITSTAMP:BTCUSD,TVC:GOLD
+
+### Technicals
+GET {{baseUrl}}/tradingview/symbols/technicals?symbol=NASDAQ:NVDA
+
+### Technicals (4-hour Bitcoin)
+GET {{baseUrl}}/tradingview/symbols/technicals?symbol=BITSTAMP:BTCUSD&interval=4h
+
+### Financial statements
+GET {{baseUrl}}/tradingview/symbols/financials?symbol=NASDAQ:NVDA&statement=income
+
+### Financial statements (quarterly balance sheet)
+GET {{baseUrl}}/tradingview/symbols/financials?symbol=NASDAQ:AAPL&statement=balance&period=quarterly
+
+### OHLC candles
+GET {{baseUrl}}/tradingview/symbols/history?symbol=BITSTAMP:BTCUSD&interval=1d&bars=5
+
+### Markets (every listing of a multi-listed instrument)
+GET {{baseUrl}}/tradingview/symbols/markets?symbol=BTCUSD
+
+# ========================================
+# SCREENER
+# ========================================
+
+### Stock screener preset
+GET {{baseUrl}}/tradingview/screener/scan?market=america&preset=gainers
+
+### Stock screener with filters + column preset
+GET {{baseUrl}}/tradingview/screener/scan?market=india&filters=market_cap_basic:greater:1e11,RSI:less:40&columns=technicals&sort=RSI&order=asc
+
+### Crypto screener
+GET {{baseUrl}}/tradingview/screener/crypto?sort=market_cap
+
+### ETF screener
+GET {{baseUrl}}/tradingview/screener/etf?market=america&sort=aum
+
+# ========================================
+# CALENDARS
+# ========================================
+
+### Economic calendar
+GET {{baseUrl}}/tradingview/calendar/economic?countries=US,GB&importance=high
+
+### Earnings calendar
+GET {{baseUrl}}/tradingview/calendar/earnings?market=america
+
+### Dividend calendar
+GET {{baseUrl}}/tradingview/calendar/dividends?market=america
+
+# ========================================
+# NEWS
+# ========================================
+
+### News about a symbol
+GET {{baseUrl}}/tradingview/news/search?symbol=NASDAQ:AAPL&limit=3
+
+### Top stories
+GET {{baseUrl}}/tradingview/news/search?top=true&limit=2
+
+### Story details
+GET {{baseUrl}}/tradingview/news/details?story=tradingview:ab5c900008e42:0
+
+# ========================================
+# IDEAS / SCRIPTS / MINDS / USERS
+# ========================================
+
+### Trading ideas about a symbol
+GET {{baseUrl}}/tradingview/ideas/search?symbol=NASDAQ:AAPL&sort=popular
+
+### Idea details
+GET {{baseUrl}}/tradingview/ideas/details?idea=qNLedwY9
+
+### Ideas search (TradingView's own text search)
+GET {{baseUrl}}/tradingview/ideas/search?query=nvidia
+
+### Idea comments (with reply threads)
+GET {{baseUrl}}/tradingview/ideas/comments?idea=qNLedwY9
+
+### Pine script search
+GET {{baseUrl}}/tradingview/scripts/search?query=squeeze%20momentum
+
+### Pine script search (strategies only)
+GET {{baseUrl}}/tradingview/scripts/search?query=rsi&type=strategy
+
+### Script details (with open-source Pine code)
+GET {{baseUrl}}/tradingview/scripts/details?script=nqQ1DT5a
+
+### Minds feed of a symbol
+GET {{baseUrl}}/tradingview/minds/search?symbol=NASDAQ:AAPL
+
+### Minds post details
+GET {{baseUrl}}/tradingview/minds/details?mind=YBPAw86OQ5y0P_rrBEJgYQ
+
+### Member profile
+GET {{baseUrl}}/tradingview/users/details?user=TradingView

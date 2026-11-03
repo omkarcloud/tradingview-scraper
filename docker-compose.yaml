@@ -1,0 +1,11 @@
+services:
+  tradingview-scraper:
+    build: .
+    restart: unless-stopped
+    ports:
+      - "8000:8000"
+    environment:
+      - PORT=8000
+      # Optional — TradingView serves cloud servers and datacenter proxies
+      # alike, so leave this unset unless you see 502 "blocked" errors.
+      # - TRADINGVIEW_PROXY=http://user:pass@host:port
