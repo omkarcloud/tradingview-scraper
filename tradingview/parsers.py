@@ -27,7 +27,7 @@ window.initData.symbolInfo, the ssrIdeaData init-data); the site's other
 inline scripts, styles and SVG were stripped. Text search pages
 (/ideas/search/<q>/, /scripts/search/<q>/) were captured the same day.
 """
-import json
+import fastjson
 import re
 from datetime import datetime, timezone
 
@@ -345,7 +345,7 @@ def parse_symbol_page(html_text):
     out["title"] = _unescape(title.group(1)).strip() if title else None
     for match in _LD_RE.finditer(html_text or ""):
         try:
-            block = json.loads(match.group(1))
+            block = fastjson.loads(match.group(1))
         except ValueError:
             continue
         kind = block.get("@type")
@@ -362,7 +362,7 @@ def parse_symbol_page(html_text):
     info = _SYMBOL_INFO_RE.search(html_text or "")
     if info:
         try:
-            out["symbol_info"] = json.loads(info.group(1))
+            out["symbol_info"] = fastjson.loads(info.group(1))
         except ValueError:
             out["symbol_info"] = None
     return out
@@ -761,7 +761,7 @@ def parse_script_page(html_text):
     if not match:
         return None
     try:
-        block = json.loads(match.group(1))
+        block = fastjson.loads(match.group(1))
     except ValueError:
         return None
     for value in block.values():
@@ -904,7 +904,7 @@ def _ws_messages(frames):
             if not chunk or chunk.isdigit() or chunk.startswith("~h~"):
                 continue
             try:
-                yield json.loads(chunk)
+                yield fastjson.loads(chunk)
             except ValueError:
                 continue
 

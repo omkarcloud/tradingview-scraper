@@ -3,10 +3,19 @@ browser, no cookies, no tokens — every surface below answers anonymous
 clients. Egress: the pod's own IP (config.tradingview_proxy(), knob
 TRADINGVIEW_EXIT; pod probe 2026-11-03: 200 on all 16 surfaces direct,
 datacenter and residential); a 401 / 403 / 429 on the pod IP moves every
-new session to a sticky datacenter proxy exit for
-config.TRADINGVIEW_BLOCK_HOLD_S seconds, and any retryable failure drops
-the session so the retry rides a fresh exit (tofler/fetch.py is the
-reference).
+new HTTP session for config.TRADINGVIEW_BLOCK_HOLD_S seconds to the
+fallback tier (since 2026-11-11 the shared gateway exit,
+TRADINGVIEW_FALLBACK_EXIT = "gateway", exit_gateway.py: a fresh gateway address on
+nearly every request, numbers in config.py's tradingview block), and any
+retryable failure drops the session so the retry rides a fresh exit
+(tofler/fetch.py is the reference). Behind the gateway sits a sticky
+datacenter proxy exit (config.tradingview_last_proxy(),
+TRADINGVIEW_LAST_EXIT): a refusal through the gateway moves new sessions
+there for the hold, and a call the gateway fails any other way (the
+gateway's own errors, a timeout, 5xx) makes its last retry there, for that
+call only. The chart websocket cannot ride the gateway
+(config.tradingview_ws_proxy()): it stays on the pod's own IP and rides a
+datacenter exit while a block hold runs, as before the gateway.
 
 Upstream surfaces (the site's own JSON unless noted):
 
@@ -68,6 +77,7 @@ import config
 import egress
 from scraper_errors import BadRequest, Blocked, NotFound, UpstreamError
 from tradingview.refs import SITE
+from scraper_utils import sessions
 
 SCANNER = "https://scanner.tradingview.com"
 SEARCH = "https://symbol-search.tradingview.com"
@@ -117,59 +127,106 @@ class TradingviewNotFound(NotFound):
 
 
 # ---- sessions ------------------------------------------------------------------
+# One HTTP session per cheroot worker thread (egress.new_session: curl_cffi,
+# or the gateway exit's look-alike). Process-wide: after a block on the pod's
+# own IP every new HTTP session rides the fallback tier (the gateway exit)
+# until _blocked_until; after a refusal through the gateway, the last tier
+# (a datacenter exit) until _last_until. The chart websocket cannot ride the
+# gateway: it stays on the own IP and moves to a datacenter exit while
+# either hold runs (_ws_proxies), as it did before the gateway.
 
 _local = threading.local()
 _block_lock = threading.Lock()
 _blocked_until = 0.0     # monotonic time until which new sessions avoid the pod's own IP
+_last_until = 0.0        # monotonic time until which new HTTP sessions avoid the gateway exit too
 
 
-def _note_block():
-    global _blocked_until
+def _note_block(on_gateway=False):
+    """A 401 / 403 / 429: `on_gateway` = the refused session rode the gateway
+    exit (as the fallback tier that is the step to the last tier; as the
+    main exit it says nothing about the own IP and starts no hold)."""
+    global _blocked_until, _last_until
+    until = time.monotonic() + config.TRADINGVIEW_BLOCK_HOLD_S
     with _block_lock:
-        _blocked_until = time.monotonic() + config.TRADINGVIEW_BLOCK_HOLD_S
+        if on_gateway and config.tradingview_proxy() is not None:
+            return
+        if on_gateway and config.tradingview_last_proxy() is not None:
+            print(f"tradingview: the gateway exit was refused too ({config.TRADINGVIEW_FALLBACK_EXIT}); new sessions on "
+                  f"{config.TRADINGVIEW_LAST_EXIT} for {config.TRADINGVIEW_BLOCK_HOLD_S} s")
+            _last_until = until
+        elif time.monotonic() < _last_until:        # refused on the last tier: stay there on a fresh exit
+            _last_until = until
+        else:
+            _blocked_until = until
 
 
-def _proxies():
-    proxy = config.tradingview_proxy(blocked=time.monotonic() < _blocked_until)
+def _exit():
+    """The exit of the thread's next HTTP session: None (the own IP), a
+    proxy URL, or the gateway exit ("gateway")."""
+    if getattr(_local, "last_try", False):      # the last retry of a call the gateway kept failing (_retrying)
+        return config.tradingview_last_proxy()
+    exit = config.tradingview_proxy()
+    if exit is None:
+        now = time.monotonic()
+        if now < _last_until:
+            exit = config.tradingview_last_proxy()
+        if exit is None and now < _blocked_until:
+            exit = config.tradingview_proxy(blocked=True)
+    return exit
+
+
+def _ws_proxies():
+    """The chart websocket's exit, as curl proxies (never the gateway exit)."""
+    proxy = config.tradingview_ws_proxy(blocked=time.monotonic() < max(_blocked_until, _last_until))
     return {"http": proxy, "https": proxy} if proxy else None
 
 
 def _session():
     sess = getattr(_local, "session", None)
     if sess is None:
-        from curl_cffi import requests as curl_requests
-        sess = curl_requests.Session(impersonate=IMPERSONATE)
-        proxies = _proxies()
-        if proxies:
-            sess.proxies = proxies
+        exit = _local.exit = _exit()
+        sess = egress.new_session(exit, impersonate=IMPERSONATE)
         _local.session = sess
     return sess
 
 
+def _on_gateway():
+    """True while the thread's HTTP session rides the gateway exit."""
+    return getattr(_local, "session", None) is not None and bool(config.gateway_exit(getattr(_local, "exit", None)))
+
+
 def _drop_session():
     """Close the thread's session so the retry rides a fresh exit."""
-    sess = getattr(_local, "session", None)
-    _local.session = None
-    if sess is not None:
-        try:
-            sess.close()
-        except Exception:
-            pass
+    sessions.drop(_local)
 
 
-def _retrying(fn):
+def _retrying(fn, http=True):
+    """Run fn() under the shared retry policy. An HTTP call (`http`) whose
+    tries through the gateway exit keep failing makes its LAST retry on
+    config.TRADINGVIEW_LAST_EXIT: the gateway's own errors (its throttle,
+    its 29 s timeout) then cost latency, not the call. The chart websocket
+    (http=False) has no session on the gateway and none of that."""
     last = None
-    for attempt in range(1, config.MAX_RETRIES + 1):
-        try:
-            return fn()
-        except TradingviewUpstreamError as e:
-            last = e
-            if isinstance(e, TradingviewBlocked):
-                _note_block()
-            _drop_session()
-            if attempt < config.MAX_RETRIES:
-                time.sleep(config.RETRY_BACKOFF * attempt)
-    raise last
+    try:
+        for attempt in range(1, config.MAX_RETRIES + 1):
+            try:
+                return fn()
+            except TradingviewUpstreamError as e:
+                last = e
+                on_gateway = http and _on_gateway()
+                if isinstance(e, TradingviewBlocked):
+                    _note_block(on_gateway)
+                _drop_session()
+                if attempt < config.MAX_RETRIES:
+                    # the session _session() builds next
+                    _local.last_try = (on_gateway and attempt + 1 == config.MAX_RETRIES
+                                       and config.tradingview_last_proxy() is not None)
+                    time.sleep(config.RETRY_BACKOFF * attempt)
+        raise last
+    finally:
+        if getattr(_local, "last_try", False):
+            _local.last_try = False
+            _drop_session()         # the next call starts on the thread's own tier again
 
 
 def _upstream_message(resp):
@@ -444,7 +501,7 @@ def chart_history(symbol, resolution, bars):
     def once():
         from curl_cffi import requests as curl_requests
         sess = curl_requests.Session(impersonate=IMPERSONATE)
-        proxies = _proxies()
+        proxies = _ws_proxies()       # a websocket cannot ride the gateway exit
         if proxies:
             sess.proxies = proxies
         frames = []
@@ -488,4 +545,4 @@ def chart_history(symbol, resolution, bars):
                 sess.close()
             except Exception:
                 pass
-    return _retrying(once)
+    return _retrying(once, http=False)

@@ -31,3 +31,19 @@ TRADINGVIEW_PROXY = os.environ.get("TRADINGVIEW_PROXY") or None
 def tradingview_proxy(blocked=False):
     """The proxy for one session or one chart websocket (None = direct)."""
     return os.environ.get("TRADINGVIEW_PROXY") or None
+
+
+# ---- added by the sync: defaults for a direct run ----
+TRADINGVIEW_FALLBACK_EXIT = None
+TRADINGVIEW_LAST_EXIT = None
+def gateway_exit(exit=None):
+    return None
+
+
+def tradingview_last_proxy():
+    return None
+
+
+def tradingview_ws_proxy(blocked=None):
+    return None
+
